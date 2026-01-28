@@ -1,7 +1,7 @@
 import std/[dynlib]
 
 ## This module provides bindings for GSettings from libgio.
-## It is used in `icontheme` to get system icon theme.
+## It is used in `icons` module to get system icon theme.
 
 
 type
