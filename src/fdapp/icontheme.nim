@@ -11,15 +11,25 @@ import gsettings
 ]##
 
 
-type IconTheme = ref object
-  id*: string
-  paths*: seq[string]
-  name*: string
-  localizedName*: Table[string, string]
-  comment*: string
-  localizedComment*: Table[string, string]
-  directories*: seq[string]
-  inherits*: seq[IconTheme]
+type
+  IconType* = enum
+    threshold, fixed, scalable
+
+  IconThemeSubdir* = object
+    path*: string
+    size*: uint
+    scale*: uint = 1
+    icType*: IconType = threshold
+
+  IconTheme* = ref object
+    id*: string
+    paths*: seq[string]
+    name*: string
+    localizedName*: Table[string, string]
+    comment*: string
+    localizedComment*: Table[string, string]
+    directories*: seq[IconThemeSubdir]
+    inherits*: seq[IconTheme]
 
 
 var themesCache: Table[string, IconTheme]
@@ -46,6 +56,12 @@ let themesDirs = block:
   addDirIfExists home & "/.local/share/pixmaps", t
   addDirIfExists "/usr/share/pixmaps", t
   t
+
+
+proc cmpSubdirs(a, b: IconThemeSubdir): int =
+  if a.icType != b.icType:
+    return cmp(a.icType, b.icType)
+  return cmp(a.size * a.scale, b.size * b.scale) * -1
 
 
 proc findIconTheme*(id: string): IconTheme =
@@ -75,9 +91,11 @@ proc findIconTheme*(id: string): IconTheme =
     raise newException(Exception, fmt"{id} icon theme was not found")
 
   # std/parsecfg doesn't support keys with `[]` (e.g `Name[ru]`), we have to parse manually
+  var subdir: IconThemeSubdir
   for line in f.lines:
     if line.startsWith('[') and line != "[Icon Theme]":
-      break
+      if subdir.path.len > 0: result.directories.add subdir
+      subdir = IconThemeSubdir(path: line[1..^2])
     elif line.contains('='):
       let kv = line.split('=')
       let key = kv[0].strip
@@ -90,13 +108,21 @@ proc findIconTheme*(id: string): IconTheme =
         result.comment = value
       elif key.startsWith("Comment["):
         result.localizedComment[key[8..^2]] = value
-      elif key == "Directories":
-        result.directories.add value.split(',').filter(
-          proc (d: string): bool = return not d.contains('@'))
       elif key == "Inherits":
         for id in value.split(','):
           let inhTheme = findIconTheme(id)
           if inhTheme != nil: result.inherits.add inhTheme
+      elif key == "Size":
+        try: subdir.size = value.parseUint
+        except: discard
+      elif key == "Scale":
+        try: subdir.scale = value.parseUint
+        except: discard
+      elif key == "Type":
+        try: subdir.icType = parseEnum[IconType](value.toLower)
+        except: subdir.icType = threshold
+  result.directories.add subdir
+  result.directories.sort(cmpSubdirs)
 
   themesCache[id] = result
 
