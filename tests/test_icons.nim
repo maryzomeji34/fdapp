@@ -1,13 +1,14 @@
 import unittest
-import std/[strformat, strutils]
+import std/[osproc, strformat, strutils]
 import fdapp/[icons]
 
 
-test "icon theme":
+test "icons":
   let systemTheme = getSystemIconTheme()
   if systemTheme != nil:
+    check systemTheme.id == execProcess("gsettings get org.gnome.desktop.interface icon-theme").strip(chars = {'\''} + WHITESPACE)
     echo fmt"Your system icon theme is: {systemTheme.id} ({systemTheme.name})"
-    echo "Installed icon themes: ", getIconThemesList().join(", ")
+  echo "Installed icon themes: ", getIconThemesList().join(", ")
 
   let adw = findIconTheme("Adwaita") # Adwaita is installed by default on many distros
   check adw != nil
