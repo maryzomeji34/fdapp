@@ -15,6 +15,7 @@ test "icon theme":
   check adw.comment == "The Only One"
   check adw.inherits.contains findIconTheme("hicolor")
 
-  check lookupIcon("package-x-generic-symbolic", theme = adw) == "/usr/share/icons/Adwaita/symbolic/mimetypes/package-x-generic-symbolic.svg"
-  check lookupIcon("package-x-generic-symbolic", theme = findIconTheme("hicolor")) == ""
-  check lookupIcon("blah-blah") == ""
+  check lookupIcon("package-x-generic-symbolic", theme = adw).path == "/usr/share/icons/Adwaita/symbolic/mimetypes/package-x-generic-symbolic.svg"
+  check lookupIcon("package-x-generic-symbolic", theme = findIconTheme("hicolor")) == nil
+  check lookupIcon("blah-blah") == nil
+  check lookupIcon("folder", theme = adw, size = 512).size == 128 # Adwaita doesn't have 512px icons

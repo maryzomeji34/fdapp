@@ -36,6 +36,11 @@ type
   IconFormat* = enum
     xpm, png, svg
 
+  Icon* = ref object
+    path*: string
+    size*: uint
+    format*: IconFormat
+
 
 var themesCache: Table[string, IconTheme]
 
@@ -64,9 +69,7 @@ let themesDirs = block:
 
 
 proc cmpSubdirs(a, b: IconThemeSubdir): int =
-  if a.icType != b.icType:
-    return cmp(a.icType, b.icType)
-  return cmp(a.size * a.scale, b.size * b.scale) * -1
+  return cmp(a.size * a.scale, b.size * b.scale)
 
 
 proc findIconTheme*(id: string): IconTheme =
@@ -158,32 +161,41 @@ proc getIconThemesList*(): seq[string] =
 proc lookupIcon*(name: string, theme: IconTheme = getSystemIconTheme(),
                  icTypes: set[IconType] = {threshold, fixed, scalable},
                  size: uint = 0, scale: uint = 1,
-                 formats: set[IconFormat] = {png, svg}): string =
-  ## Gets path to an icon. If icon isn't found, empty string is returned.
+                 formats: set[IconFormat] = {png, svg}): Icon =
+  ## Gets an icon. If an icon isn't found, `nil` is returned.
   ##
   ## `name` must be just an icon name, without extension.
   ##
-  ## If `size` is 0, the result is an icon of biggest size. Another `size` value sets a limit, but a smaller icon may be returned if there's no icon of requested size.
+  ## If an icon exists, but not in requested size, an icon of smaller size will be returned, or, if that doesn't exist either, an icon of bigger size.
 
   if theme == nil:
-    return ""
+    return nil
 
-  let dirs = theme.directories.filter(proc (d: IconThemeSubdir): bool =
-    if size > 0:
-      return (d.icType in icTypes) and d.size <= size and d.scale <= scale
-    else:
-      return (d.icType in icTypes) and d.scale <= scale)
+  result = new Icon
 
   for root in theme.paths:
-    for dir in dirs:
+    for dir in theme.directories:
       for format in formats:
         let path = fmt"{root}/{dir.path}/{name}.{format}"
         if fileExists(path):
-          return path
+          if dir.size == size:
+            result.path = path
+            result.size = dir.size
+            result.format = format
+            return
+          elif dir.size > size and result.path.len > 0:
+            return
+          else:
+            result.path = path
+            result.size = dir.size
+            result.format = format
+
+  if result.path.len > 0:
+    return result
 
   if theme.inherits.len > 0:
     for inhTheme in theme.inherits:
       let inhIcon = lookupIcon(name, inhTheme, icTypes, size, scale, formats)
-      if inhIcon.len > 0: return inhIcon
+      if inhIcon != nil: return inhIcon
 
-  return ""
+  return nil
