@@ -5,6 +5,8 @@
 
   `findIconTheme`, `getSystemIconTheme`, `getIconThemesList` provide info about icon themes.
 
+  `onIconThemeChanged` template allows to watch when the system icon theme gets changed.
+
   Take note that this module doesn't fully implement the spec. While `lookupIcon` should work as expected, some icon themes data is not taken into account and not provided.
   https://specifications.freedesktop.org/icon-theme/latest/
 ]##
@@ -42,6 +44,8 @@ type
     format*: IconFormat
 
 
+let interfaceSettings = newSettings("org.gnome.desktop.interface")
+
 var themesCache: Table[string, IconTheme]
 
 
@@ -53,17 +57,18 @@ let themesDirs = block:
   var t = newSeq[string]()
 
   let home = getEnv("HOME")
-  addDirIfExists home & "/.icons", t
+  addDirIfExists fmt"{home}/.icons", t
 
-  if getEnv("XDG_DATA_DIRS").len > 0:
-    for dir in getEnv("XDG_DATA_DIRS").split(':'):
+  let xdgDataDirs = getEnv("XDG_DATA_DIRS")
+  if xdgDataDirs.len > 0:
+    for dir in xdgDataDirs.split(':'):
       addDirIfExists dir, t
   else:
-    addDirIfExists home & "/.local/share/icons", t
+    addDirIfExists fmt"{home}/.local/share/icons", t
     addDirIfExists "/usr/local/share/icons", t
     t.add "/usr/share/icons" # de-facto standard dir, expected to exist
 
-  addDirIfExists home & "/.local/share/pixmaps", t
+  addDirIfExists fmt"{home}/.local/share/pixmaps", t
   addDirIfExists "/usr/share/pixmaps", t
   t
 
@@ -138,8 +143,7 @@ proc findIconTheme*(id: string): IconTheme =
 proc getSystemIconTheme*(): IconTheme =
   ## Gets current system icon theme (or `nil` if failed to detect)
 
-  let settings = newSettings("org.gnome.desktop.interface")
-  let id = $settings.getString("icon-theme")
+  let id = $(interfaceSettings.getString("icon-theme"))
   if id.len == 0:
     return nil
   return findIconTheme(id)
@@ -199,3 +203,11 @@ proc lookupIcon*(name: string, theme: IconTheme = getSystemIconTheme(),
       if inhIcon != nil: return inhIcon
 
   return nil
+
+
+template onIconThemeChanged*(actions: untyped) =
+  ## Allows to watch for when the system icon theme gets changed.
+  ##
+  ## For this functionality to work, it is required to iterate GLib context. When not using main fdapp module to call `fdappIterate`, import `glib` submodule to call `iterate` in your app's loop (see `test_icons.nim` for example).
+
+  interfaceSettings.onChanged("icon-theme"): actions

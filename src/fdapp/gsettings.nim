@@ -1,36 +1,24 @@
-import std/[dynlib]
+##[
+    This module provides access to GSettings.
 
-## This module provides bindings for GSettings from libgio.
-## It is used in `icons` module to get system icon theme.
+    While you can use this module for your own purposes, take note it only supports working with string type values, because fdapp only needs that internally.
+]##
 
-
-type
-  GSettingsPtr = pointer
-  GSettings = object
-    handle: GSettingsPtr
-
-  GSettingsNewFunc = proc(schema: cstring): GSettingsPtr {.gcsafe, stdcall.}
-  GSettingsGetStringFunc = proc(settings: GSettingsPtr, key: cstring): cstring {.gcsafe, stdcall.}
-  GObjectUnrefFunc = proc(obj: GSettingsPtr) {.gcsafe, stdcall.}
-
-
-let
-  gioHandle = loadLibPattern("libgio-2.0.so(|.0)")
-  gsettingsNew = cast[GSettingsNewFunc](gioHandle.symAddr("g_settings_new"))
-  gsettingsGetString = cast[GSettingsGetStringFunc](gioHandle.symAddr("g_settings_get_string"))
-  gobjectUnref = cast[GObjectUnrefFunc](gioHandle.symAddr("g_object_unref"))
+import glib
 
 
 proc newSettings*(schema: string): GSettings =
-  if gioHandle != nil:
-    result.handle = gsettingsNew(schema.cstring)
+  withGlibContext:
+    result = newGSettings(schema.cstring)
 
 
 proc getString*(settings: GSettings, key: string): string =
-  if gioHandle != nil:
-    return $gsettingsGetString(settings.handle, key.cstring)
+  withGlibContext:
+    result = $gsettingsGetString(settings, key.cstring)
 
 
-proc `=destroy`(settings: var GSettings) =
-  if gioHandle != nil:
-    try: gobjectUnref(settings.handle) except: discard
+template onChanged*(settings: GSettings, key: string, actions: untyped) =
+  withGlibContext:
+    discard settings.getString(key) # GLib will only emit signal if the key was read at least once
+    let connection = glib.connect(settings, "changed::icon-theme", proc() {.cdecl.} = actions, nil, nil, 0)
+    assert connection > 0
