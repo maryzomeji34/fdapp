@@ -5,7 +5,7 @@ import fdapp/icons
 
 test "icons lookup":
   let systemTheme = getSystemIconTheme()
-  assert systemTheme != nil
+  check systemTheme != nil
   check systemTheme.id == execProcess("gsettings get org.gnome.desktop.interface icon-theme").strip(chars = {'\''} + WHITESPACE)
   echo fmt"Your system icon theme is: {systemTheme.id} ({systemTheme.name})"
   echo "Installed icon themes: ", getIconThemesList().join(", ")
