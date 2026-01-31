@@ -1,5 +1,5 @@
 import unittest
-import std/[asyncdispatch, osproc, strformat, strutils]
+import std/[asyncdispatch, os, osproc, strformat, strutils]
 import fdapp/icons
 
 
@@ -9,6 +9,9 @@ test "icons lookup":
   check systemTheme.id == execProcess("gsettings get org.gnome.desktop.interface icon-theme").strip(chars = {'\''} + WHITESPACE)
   echo fmt"Your system icon theme is: {systemTheme.id} ({systemTheme.name})"
   echo "Installed icon themes: ", getIconThemesList().join(", ")
+
+  if not dirExists("/usr/share/icons/Adwaita"):
+    skip()
 
   let adw = findIconTheme("Adwaita") # Adwaita is installed by default on many distros
   check adw != nil
@@ -31,11 +34,11 @@ test "watch system icon theme":
     if getSystemIconTheme() != theme:
       themeChanged = true
 
-  let cb: Callback = proc(fd: AsyncFD): bool =
+  let cb: Callback = proc(_: AsyncFD): bool =
     discard execProcess(fmt"gsettings set org.gnome.desktop.interface icon-theme nonexistanttheme")
     return true
 
-  addTimer(1000, true, cb)
+  addTimer(500, true, cb)
 
   while not themeChanged:
     glibContext.iterate() # iterating context for Glib signal to work

@@ -1,20 +1,21 @@
 ##[
   This module provides utilities to get info about system icons.
 
-  Use `lookupIcon` to get full path of a requested icon.
+  Use `lookupIcon proc`_ to get full path of a requested icon.
 
-  `findIconTheme`, `getSystemIconTheme`, `getIconThemesList` provide info about icon themes.
+  `findIconTheme proc`_, `getSystemIconTheme proc`_, `getIconThemesList proc`_ provide info about icon themes.
 
-  `onIconThemeChanged` template allows to watch when the system icon theme gets changed.
+  `onIconThemeChanged template`_ allows to watch when the system icon theme gets changed.
 
-  Take note that this module doesn't fully implement the spec. While `lookupIcon` should work as expected, some icon themes data is not taken into account and not provided.
-  https://specifications.freedesktop.org/icon-theme/latest/
+  Take note that this module doesn't fully implement `the spec <
+  https://specifications.freedesktop.org/icon-theme/latest/>`_. While `icon lookup <#lookupIcon>`_ should work as expected, some icon themes data is not taken into account and not provided.
 ]##
 
 import std/[algorithm, os, sequtils, sets, strformat, strutils, tables]
 import internal/gsettings
 from internal/glib import glibContext, iterate
 export glibContext, iterate
+## .. importdoc:: internal/glib.nim, ../fdapp.nim
 
 
 type
@@ -154,7 +155,7 @@ proc getSystemIconTheme*(): IconTheme =
 proc getIconThemesList*(): seq[string] =
   ## Gets list of all installed icon themes.
   ##
-  ## You can use retrieved ids to pass into `findIconTheme`.
+  ## You can use retrieved ids to pass into `findIconTheme proc`_.
 
   var themes: HashSet[string]
   for dir in themesDirs:
@@ -210,6 +211,6 @@ proc lookupIcon*(name: string, theme: IconTheme = getSystemIconTheme(),
 template onIconThemeChanged*(actions: untyped) =
   ## Allows to watch for when the system icon theme gets changed.
   ##
-  ## For this functionality to work, it is required to iterate GLib context. When not using main fdapp module to call `fdappIterate`, import `glib` submodule to call `iterate` in your app's loop (see `test_icons.nim` for example).
+  ## For this functionality to work, it is required to iterate GLib context. When not using main fdapp module to call `fdappIterate proc`_, call `iterate proc`_ with `glib: glibContext <internal/glib.html#glibContext>`_ (both exported by this module) in your app's loop (see `test_icons.nim <https://github.com/cndlwstr/fdapp/blob/main/tests/test_icons.nim>`_ for example).
 
   interfaceSettings.onChanged("icon-theme"): actions
