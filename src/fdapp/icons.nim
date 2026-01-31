@@ -146,7 +146,7 @@ proc findIconTheme*(id: string): IconTheme =
 proc getSystemIconTheme*(): IconTheme =
   ## Gets current system icon theme (or `nil` if failed to detect)
 
-  let id = $(interfaceSettings.getString("icon-theme"))
+  let id = interfaceSettings.get("icon-theme")
   if id.len == 0:
     return nil
   return findIconTheme(id)

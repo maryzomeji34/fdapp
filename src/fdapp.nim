@@ -42,24 +42,23 @@ proc dbusMethodCallCallback(connection: GDBusConnection, sender, objectPath, int
   let app = cast[FreedesktopApp](data)
 
   proc getPlatformData(dict: GVariant): (string, string) =
-    var startupIdVariant = dict.lookupValue("desktop-startup-id", newGVariantType("s"))
+    let startupIdVariant = dict.lookupValue("desktop-startup-id", newGVariantType("s"))
     if cast[pointer](startupIdVariant) != nil:
       result[0] = $startupIdVariant.getString(nil)
-      startupIdVariant.unrefVariant()
+      startupIdVariant.unref()
 
-    var activationTokenVariant = dict.lookupValue("activation-token", newGVariantType("s"))
+    let activationTokenVariant = dict.lookupValue("activation-token", newGVariantType("s"))
     if cast[pointer](activationTokenVariant) != nil:
       result[1] = $activationTokenVariant.getString(nil)
-      activationTokenVariant.unrefVariant()
+      activationTokenVariant.unref()
 
   if interfaceName == "org.freedesktop.Application":
     case methodName:
     of "Activate":
       if app.activateCallback != nil:
-        var platformDict: ptr GVariant
-        parameters.get("(a{sv})", platformDict.addr)
-        let (startupId, activationToken) = getPlatformData(platformDict[])
-        platformDict[].unrefVariant()
+        let platformDict = parameters.getChildValue(0)
+        let (startupId, activationToken) = getPlatformData(platformDict)
+        platformDict.unref()
 
         app.activateCallback(startupId, activationToken)
     else: discard

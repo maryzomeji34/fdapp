@@ -9,12 +9,12 @@ import glib
 
 proc newSettings*(schema: string): GSettings =
   withGlibContext:
-    result = newGSettings(schema.cstring)
+    result = newGSettings(schema)
 
 
-proc getString*(settings: GSettings, key: string): string =
+proc get*(settings: GSettings, key: string): string =
   withGlibContext:
-    result = $gsettingsGetString(settings, key.cstring)
+    result = $settings.getString(key)
 
 
 template onChanged*(settings: GSettings, key: string, actions: untyped) =
