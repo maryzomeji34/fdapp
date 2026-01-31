@@ -10,3 +10,9 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 2.2.0"
+
+
+task updateDocs, "Update docs":
+  rmDir "src/htmldocs"
+  exec "nim doc --project --index:only src/fdapp.nim"
+  exec "nim doc --project src/fdapp.nim"
