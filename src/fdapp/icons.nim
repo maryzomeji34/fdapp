@@ -12,7 +12,9 @@
 ]##
 
 import std/[algorithm, os, sequtils, sets, strformat, strutils, tables]
-import gsettings
+import internal/gsettings
+from internal/glib import glibContext, iterate
+export glibContext, iterate
 
 
 type

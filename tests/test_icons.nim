@@ -1,6 +1,6 @@
 import unittest
 import std/[asyncdispatch, osproc, strformat, strutils]
-import fdapp/[glib, icons]
+import fdapp/icons
 
 
 test "icons lookup":
