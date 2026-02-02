@@ -29,6 +29,7 @@ test "single-instance app test":
   # activated == 2 at this point
 
   let p = startProcess(getAppFilename())
+  defer: p.close()
 
   while p.running:
     fdappIterate()

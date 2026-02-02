@@ -27,7 +27,8 @@ test "unity launcher":
         break
 
   echo "Starting Unity Launcher test for " & app.appUri
-  echo "Use -d:UnityDesktopFile=... to change desktop file name"
+  if not defined(UnityDesktopFile):
+    echo "Use -d:UnityDesktopFile=... to change desktop file name"
 
   app.activate()
 
@@ -37,6 +38,7 @@ test "unity launcher":
   sleep(500)
 
   let p = startProcess("/usr/bin/gdbus", args = ["call", "-e", "-d", app.appId, "-o", app.unityObjectPath, "-m", "com.canonical.Unity.LauncherEntry.Query"])
+  defer: p.close()
   while p.running:
     fdappIterate()
   check p.outputStream.readAll().contains("'progress': <1.0>, 'urgent': <true>, 'count-visible': <true>, 'progress-visible': <false>")
