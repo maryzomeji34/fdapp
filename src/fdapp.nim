@@ -1,16 +1,19 @@
-import std/[strformat, strutils]
+import std/[cmdline, sequtils, strformat, strutils]
 import fdapp/[icons, internal/glib {.all.}]
 export icons
 
 
 type
-  UnityParam = enum
-    count, progress, urgent, countVisible = "count-visible", progressVisible = "progress-visible"
+  DBusInterface* = enum
+    orgFreedesktopApplication, comCanonicalUnity, commandLine
+
+  DBusInterfaces* = set[DBusInterface]
 
   FreedesktopAppObj = object
     appId: string
     busId: cuint
     busConnection: GDBusConnection
+    interfaces: DBusInterfaces
 
     # org.freedesktop.Application
     activateCallback: proc(startupId: string, activationToken: string)
@@ -22,7 +25,13 @@ type
     unityObjectPath: string
     unityParams: tuple[count: int64, progress: float64, urgent, countVisible, progressVisible: bool]
 
+    # Custom interface
+    commandLineCallback: proc(args: seq[string])
+
   FreedesktopApp* = ref FreedesktopAppObj
+
+  UnityParam = enum
+    count, progress, urgent, countVisible = "count-visible", progressVisible = "progress-visible"
 
 
 var dbusInfo: GDBusNodeInfo
@@ -34,10 +43,11 @@ proc `=destroy`(app: var FreedesktopAppObj) =
 
 
 const
-  SESSION_BUS = 2
-  DO_NOT_QUEUE = 4
-  FREEDESKTOP_APP_XML = staticRead("fdapp/internal/dbus/org.freedesktop.Application.xml")
-  UNITY_LAUNCHER_XML = staticRead("fdapp/internal/dbus/com.canonical.Unity.LauncherEntry.xml")
+  SessionBus = 2
+  DoNotQueue = 4
+  FreedesktopAppXml = staticRead("fdapp/internal/dbus/org.freedesktop.Application.xml")
+  UnityLauncherXml = staticRead("fdapp/internal/dbus/com.canonical.Unity.LauncherEntry.xml")
+  CommandLineXml = staticRead("fdapp/internal/dbus/custom.xml")
 
 
 proc dbusMethodCallCallback(connection: GDBusConnection, sender, objectPath, interfaceName, methodName: cstring, parameters: GVariant, invocation: GDBusMethodInvocation, data: pointer) {.cdecl.} =
@@ -106,8 +116,19 @@ proc dbusMethodCallCallback(connection: GDBusConnection, sender, objectPath, int
     builder.add("{sv}", "progress-visible", newGVariant("b", if app.unityParams.progressVisible: 1 else: 0))
     invocation.returnValue(newGVariant("(sa{sv})", app.appUri.cstring, builder))
     return
-
-  invocation.returnValue(nil)
+  elif interfaceName == app.appId.cstring and methodName == "CommandLine":
+    let
+      argsArray = parameters.getChildValue(0)
+      iter = newGVariantIter(argsArray)
+    var
+      item: cstring
+      args = newSeq[string]()
+    while iter.loop("s", item.addr) > 0:
+      args.add($item)
+    iter.free()
+    app.commandLineCallback(args)
+    invocation.returnValue(nil)
+    return
 
 
 const dbusVTable = GDBusInterfaceVTable(methodCall: dbusMethodCallCallback, getProperty: nil, setProperty: nil)
@@ -117,19 +138,26 @@ proc busAcquiredCallback(connection: GDBusConnection, name: cstring, data: point
   let app = cast[FreedesktopApp](data)
   app.busConnection = connection
 
-  let freedesktopObjectPath = ("/" & app.appId.replace('-', '_').replace('.', '/')).cstring
-  let freedesktopId = connection.registerObject(freedesktopObjectPath, dbusInfo.interfaces[0], dbusVTable.addr, data, nil, nil)
-  doAssert freedesktopId > 0, "Failed to register DBus object for path " & $freedesktopObjectPath
+  if orgFreedesktopApplication in app.interfaces:
+    let freedesktopObjectPath = ("/" & app.appId.replace('-', '_').replace('.', '/')).cstring
+    let freedesktopId = connection.registerObject(freedesktopObjectPath, dbusInfo.interfaces[0], dbusVTable.addr, data, nil, nil)
+    doAssert freedesktopId > 0, fmt"Failed to register DBus object for path {$freedesktopObjectPath} and interface org.freedesktop.Application"
 
-  proc djb2(s: string): uint64 =
-    var hash: uint64 = 5381
-    for c in s:
-      hash = (hash shl 5) + hash + uint64(c)
-    return hash
+  if comCanonicalUnity in app.interfaces:
+    proc djb2(s: string): uint64 =
+      var hash: uint64 = 5381
+      for c in s:
+        hash = (hash shl 5) + hash + uint64(c)
+      return hash
 
-  app.unityObjectPath = "/com/canonical/unity/launcherentry/" & $app.appUri.djb2()
-  let unityId = connection.registerObject(app.unityObjectPath.cstring, dbusInfo.interfaces[1], dbusVTable.addr, data, nil, nil)
-  doAssert unityId > 0, "Failed to register DBus object for path" & app.unityObjectPath
+    app.unityObjectPath = "/com/canonical/unity/launcherentry/" & $app.appUri.djb2()
+    let unityId = connection.registerObject(app.unityObjectPath.cstring, dbusInfo.interfaces[1], dbusVTable.addr, data, nil, nil)
+    doAssert unityId > 0, "Failed to register DBus object for path" & app.unityObjectPath
+
+  if commandLine in app.interfaces:
+    let cmdLineObjectPath = ("/" & app.appId.replace('-', '_').replace('.', '/')).cstring
+    let cmdLineId = connection.registerObject(cmdLineObjectPath, dbusInfo.interfaces[2], dbusVTable.addr, data, nil, nil)
+    doAssert cmdLineId > 0, fmt"Failed to register DBus object for path {$cmdLineObjectPath} and interface {app.appId}"
 
 
 proc nameLostCallback(connection: GDBusConnection, name: cstring, data: pointer) {.cdecl.} =
@@ -138,7 +166,30 @@ proc nameLostCallback(connection: GDBusConnection, name: cstring, data: pointer)
   var error: GError
   var ret: GVariant
 
-  ret = connection.call(app.appId.cstring, objectPath, "org.freedesktop.Application", "Activate", newGVariant("(a{sv})", nil), nil, 0, -1, nil, error.addr)
+  var args: seq[string]
+  when declared(commandLineParams):
+    args = commandLineParams()
+
+  if args.len > 0:
+    let t = newGVariantType("as")
+    defer: t.free()
+    let builder = newGVariantBuilder(t)
+    defer: builder.unref()
+    for arg in args:
+      builder.add("s", arg.cstring)
+
+    let argsAreUris = args.filter(proc (arg: string): bool = arg.contains("://")).len == args.len
+    if argsAreUris and (orgFreedesktopApplication in app.interfaces):
+      ret = connection.call(app.appId.cstring, objectPath, "org.freedesktop.Application", "Open", newGVariant("(asa{sv})", builder, nil), nil, 0, -1, nil, error.addr)
+    elif commandLine in app.interfaces:
+      ret = connection.call(app.appId.cstring, objectPath, app.appId.cstring, "CommandLine", newGVariant("(as)", builder), nil, 0, -1, nil, error.addr)
+    else:
+      ret = connection.call(app.appId.cstring, objectPath, "org.freedesktop.Application", "Open", newGVariant("(asa{sv})", builder, nil), nil, 0, -1, nil, error.addr)
+  else:
+    if orgFreedesktopApplication in app.interfaces:
+      ret = connection.call(app.appId.cstring, objectPath, "org.freedesktop.Application", "Activate", newGVariant("(a{sv})", nil), nil, 0, -1, nil, error.addr)
+    else:
+      ret = connection.call(app.appId.cstring, objectPath, app.appId.cstring, "CommandLine", newGVariant("(as)", nil), nil, 0, -1, nil, error.addr)
 
   if ret != nil:
     ret.unref()
@@ -149,23 +200,27 @@ proc nameLostCallback(connection: GDBusConnection, name: cstring, data: pointer)
     quit msg, 1
 
 
-const UnityDesktopFile {.strdefine, hint[XDeclaredButNotUsed]: off.} = ""
+const UnityDesktopFile {.strdefine.} = ""
 
 
-proc fdappInit*(id: string): FreedesktopApp =
-  doAssert id.len > 0, "Application ID can't be empty"
-  doAssert id.count('.') >= 2, "Application ID must be in reverse-DNS format"
+proc fdappInit*(id: static string, interfaces: static DBusInterfaces = {orgFreedesktopApplication, comCanonicalUnity, commandLine}): FreedesktopApp =
+  static:
+    doAssert id.len > 0, "Application ID can't be empty"
+    doAssert id.count('.') >= 2, "Application ID must be in reverse-DNS format"
+    doAssert (orgFreedesktopApplication in interfaces) or (commandLine in interfaces), "Cannot run single-instance app without either org.freedesktop.Application or custom command-line interface"
 
   result = new FreedesktopApp
   result.appId = id
 
-  when defined(UnityDesktopFile):
+  if UnityDesktopFile.len > 0:
     let desktopFile = if UnityDesktopFile.endsWith(".desktop"): UnityDesktopFile else: UnityDesktopFile & ".desktop"
     result.appUri = fmt"application://{desktopFile}"
   else:
     result.appUri = fmt"application://{id}.desktop"
 
-  var dbusXml = fmt"<node>{FREEDESKTOP_APP_XML}{UNITY_LAUNCHER_XML}</node>".cstring
+  result.interfaces = interfaces
+  let dbusXml = ("<node>" & FreedesktopAppXml & UnityLauncherXml & CommandLineXml.format(id) & "</node>").cstring
+
   withGlibContext:
     var err: GError
     dbusInfo = newGDBusNodeInfoForXml(dbusXml, err.addr)
@@ -203,12 +258,19 @@ proc activateAction*(app: FreedesktopApp, actionName: string) =
   app.activateActionCallback("", "", actionName)
 
 
+proc commandLine*(app: FreedesktopApp, args: seq[string]) =
+  doAssert app.commandLineCallback != nil, "Attempt to send command-line arguments without command-line callback set"
+  app.commandLineCallback(args)
+
+
 proc `onActivate=`*(app: FreedesktopApp, callback: proc(startupId, activationToken: string)) =
   app.activateCallback = callback
   if app.openCallback == nil:
     app.openCallback = proc(startupId, activationToken: string, _: seq[string]) = callback(startupId, activationToken)
   if app.activateActionCallback == nil:
     app.activateActionCallback = proc(startupId, activationToken: string, _: string) = callback(startupId, activationToken)
+  if app.commandLineCallback == nil:
+    app.commandLineCallback = proc(_: seq[string]) = callback("", "")
 
 
 template onActivate*(app: FreedesktopApp, actions: untyped) =
@@ -229,6 +291,14 @@ proc `onAction=`*(app: FreedesktopApp, callback: proc(startupId, activationToken
 
 template onAction*(app: FreedesktopApp, actions: untyped) =
   app.onAction = proc(startupId {.inject.}, activationToken {.inject.}, actionName {.inject.}: string) = actions
+
+
+proc `onCommandLine=`*(app: FreedesktopApp, callback: proc(args: seq[string])) =
+  app.commandLineCallback = callback
+
+
+template onCommandLine*(app: FreedesktopApp, actions: untyped) =
+  app.commandLineCallback = proc(args {.inject.}: seq[string]) = actions
 
 
 proc emitUnityUpdate(app: FreedesktopApp, param: UnityParam) =

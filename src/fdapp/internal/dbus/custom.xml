@@ -1,0 +1,5 @@
+<interface name='$1'>
+    <method name='CommandLine'>
+        <arg type='as' name='args' direction='in'/>
+    </method>
+</interface>

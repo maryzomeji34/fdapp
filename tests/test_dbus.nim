@@ -12,6 +12,7 @@ var
   activated = false
   opened = false
   actionActivated = false
+  commandLineReceived = false
 
 app.onActivate:
   check startupId == "ID"
@@ -30,6 +31,10 @@ app.onAction:
   check activationToken == "TOKEN"
   check actionName == "test"
   actionActivated = true
+
+app.onCommandLine:
+  check args[0] == "--someParam"
+  commandLineReceived = true
 
 
 test "dbus activation":
@@ -63,3 +68,14 @@ test "dbus action":
 
   check p.peekExitCode() == 0
   check actionActivated
+
+
+test "dbus commandLine":
+  let p = startProcess("/usr/bin/gdbus", args = ["call", "-e", "-d", APP_ID, "-o", OBJ_PATH, "-m", APP_ID & ".CommandLine", "-t", "1", "[\"--someParam\"]"])
+  defer: p.close()
+
+  while p.running:
+    fdappIterate()
+
+  check p.peekExitCode() == 0
+  check commandLineReceived
